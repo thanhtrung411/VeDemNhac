@@ -3,80 +3,145 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Soát Vé QR - GitHub Edition</title>
+  <title>Soát Vé QR Pro - Multi Camera</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    body { font-family: sans-serif; text-align: center; padding: 20px; background: #f4f7f9; }
-    #reader { width: 100%; max-width: 400px; margin: 0 auto; border-radius: 10px; overflow: hidden; background: white; }
-    .result { margin-top: 20px; padding: 15px; border-radius: 10px; display: none; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    .success { border-left: 5px solid #28a745; color: #28a745; }
-    .error { border-left: 5px solid #dc3545; color: #dc3545; }
-    #loading { display: none; color: #007bff; font-weight: bold; margin: 10px; }
+    body { font-family: 'Segoe UI', sans-serif; text-align: center; padding: 15px; background: #f0f2f5; color: #333; }
+    #reader { width: 100%; max-width: 450px; margin: 0 auto; border-radius: 12px; overflow: hidden; background: #000; box-shadow: 0 8px 16px rgba(0,0,0,0.2); }
+    
+    .controls { margin: 15px auto; max-width: 400px; display: flex; flex-direction: column; gap: 10px; }
+    select { padding: 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 16px; background: white; cursor: pointer; }
+    
+    .result { margin-top: 20px; padding: 20px; border-radius: 12px; display: none; background: white; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: left; }
+    .success { border-top: 8px solid #28a745; }
+    .error { border-top: 8px solid #dc3545; }
+    
+    #loading { display: none; color: #007bff; font-weight: bold; margin: 15px; font-size: 1.1em; }
+    .btn-next { width: 100%; padding: 15px; background: #007bff; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 18px; margin-top: 10px; cursor: pointer; }
+    h2 { margin-bottom: 5px; color: #1a73e8; }
   </style>
 </head>
 <body>
   <h2>🎫 HỆ THỐNG SOÁT VÉ 2026</h2>
+  <p style="margin-bottom: 15px; font-size: 0.9em; color: #666;">Chọn camera nét nhất để quét</p>
+
+  <div class="controls">
+    <select id="camera-select">
+      <option value="">-- Đang tìm Camera --</option>
+    </select>
+  </div>
+
   <div id="reader"></div>
-  <div id="loading">⌛ ĐANG KIỂM TRA...</div>
+  <div id="loading">⌛ ĐANG KIỂM TRA VÉ...</div>
   
   <div id="result-box" class="result">
-    <h3 id="status-text"></h3>
-    <p id="info-text"></p>
-    <button onclick="restartScanner()" style="padding: 10px 20px;">QUÉT TIẾP</button>
+    <div id="status-msg" style="font-size: 20px; font-weight: 800; text-align: center; margin-bottom: 15px;"></div>
+    <div id="info-content" style="line-height: 1.6;"></div>
+    <button class="btn-next" onclick="restartScanner()">QUÉT TIẾP</button>
   </div>
 
   <script>
     const GAS_URL = "https://script.google.com/macros/s/AKfycbxQUpc2j5YTXtKM3J6Fd-4LipbwWaJNqRtBtxXu585AInA3C5U2tbp516NJky5cOlfs/exec";
     let html5QrCode;
+    const cameraSelect = document.getElementById('camera-select');
+    const resultBox = document.getElementById('result-box');
 
-    function startScanner() {
-      html5QrCode = new Html5Qrcode("reader");
-      html5QrCode.start(
-        { facingMode: "environment" }, 
-        { fps: 10, qrbox: 250 },
-        onScanSuccess
-      );
+    // 1. Lấy danh sách Camera và khởi động
+    async function initCamera() {
+      try {
+        const devices = await Html5Qrcode.getCameras();
+        if (devices && devices.length) {
+          cameraSelect.innerHTML = ""; // Xóa dòng chờ
+          devices.forEach(device => {
+            const option = document.createElement('option');
+            option.value = device.id;
+            option.text = device.label || `Camera ${cameraSelect.length + 1}`;
+            cameraSelect.appendChild(option);
+          });
+
+          // Kiểm tra xem trước đó đã chọn camera nào chưa
+          const savedCameraId = localStorage.getItem('selectedCameraId');
+          if (savedCameraId && devices.some(d => d.id === savedCameraId)) {
+            cameraSelect.value = savedCameraId;
+          }
+
+          startScanner(cameraSelect.value);
+        } else {
+          alert("Không tìm thấy camera nào!");
+        }
+      } catch (err) {
+        alert("Lỗi khởi tạo camera: " + err);
+      }
     }
 
+    // 2. Hàm bắt đầu quét
+    function startScanner(cameraId) {
+      if (html5QrCode) {
+        html5QrCode.clear();
+      }
+      
+      html5QrCode = new Html5Qrcode("reader");
+      const config = { fps: 15, qrbox: { width: 250, height: 250 } };
+      
+      html5QrCode.start(cameraId, config, onScanSuccess)
+      .catch(err => alert("Lỗi mở camera: " + err));
+    }
+
+    // 3. Xử lý khi quét trúng mã
     async function onScanSuccess(decodedText) {
       await html5QrCode.stop();
       document.getElementById('loading').style.display = 'block';
-      document.getElementById('result-box').style.display = 'none';
+      resultBox.style.display = 'none';
 
       try {
-        // Gọi API đến GAS
         const response = await fetch(`${GAS_URL}?maVe=${encodeURIComponent(decodedText)}`);
         const data = await response.json();
         showResult(data);
       } catch (err) {
-        alert("Lỗi kết nối: " + err);
+        alert("Lỗi kết nối Server: " + err);
+        restartScanner();
       } finally {
         document.getElementById('loading').style.display = 'none';
       }
     }
 
+    // 4. Hiển thị kết quả
     function showResult(res) {
-      const box = document.getElementById('result-box');
-      const status = document.getElementById('status-text');
-      const info = document.getElementById('info-text');
+      const statusMsg = document.getElementById('status-msg');
+      const infoContent = document.getElementById('info-content');
 
-      box.style.display = "block";
-      box.className = "result " + (res.success ? "success" : "error");
-      status.innerText = res.message;
+      resultBox.style.display = "block";
+      resultBox.className = "result " + (res.success ? "success" : "error");
+      statusMsg.innerText = res.message;
+      statusMsg.style.color = res.success ? "#28a745" : "#dc3545";
       
       if (res.info) {
-        info.innerHTML = `Khách hàng: <b>${res.info.ten}</b><br>Mã vé: ${res.info.ma || '---'}`;
+        infoContent.innerHTML = `
+          <div style="display:flex; justify-content:space-between; border-bottom:1px dashed #eee; padding:8px 0;">
+            <span>Khách hàng:</span> <b>${res.info.ten}</b>
+          </div>
+          <div style="display:flex; justify-content:space-between; border-bottom:1px dashed #eee; padding:8px 0;">
+            <span>Mã vé:</span> <span style="color:#007bff">${res.info.ma}</span>
+          </div>
+        `;
       } else {
-        info.innerText = "";
+        infoContent.innerText = "Không có thông tin khách hàng.";
       }
     }
 
+    // 5. Quét tiếp (nhớ Camera đã chọn)
     function restartScanner() {
-      document.getElementById('result-box').style.display = 'none';
-      startScanner();
+      resultBox.style.display = 'none';
+      startScanner(cameraSelect.value);
     }
 
-    window.onload = startScanner;
+    // 6. Lắng nghe sự kiện đổi Camera
+    cameraSelect.addEventListener('change', () => {
+      localStorage.setItem('selectedCameraId', cameraSelect.value);
+      startScanner(cameraSelect.value);
+    });
+
+    window.onload = initCamera;
   </script>
 </body>
 </html>
